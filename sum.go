@@ -2,7 +2,6 @@ package tag
 
 import (
 	"crypto/sha1"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash"
@@ -26,7 +25,7 @@ func Sum(r io.ReadSeeker) (string, error) {
 	case string(b[0:4]) == "fLaC":
 		return SumFLAC(r)
 
-	case string(b[4:11]) == "ftypM4A":
+	case string(b[4:8]) == "ftyp":
 		return SumAtoms(r)
 
 	case string(b[0:3]) == "ID3":
@@ -56,47 +55,60 @@ func SumAll(r io.ReadSeeker) (string, error) {
 // SumAtoms constructs a checksum of MP4 audio file data provided by the io.ReadSeeker which is
 // metadata invariant.
 func SumAtoms(r io.ReadSeeker) (string, error) {
-	for {
-		var size uint32
-		err := binary.Read(r, binary.BigEndian, &size)
-		if err != nil {
-			if err == io.EOF {
-				return "", fmt.Errorf("reached EOF before audio data")
-			}
-			return "", err
-		}
+	end, err := readSeekerEnd(r)
+	if err != nil {
+		return "", err
+	}
 
-		name, err := readString(r, 4)
-		if err != nil {
-			return "", err
-		}
+	var sum string
+	err = sumAtoms(r, end, 0, &sum)
+	if err == errFoundAudio {
+		return sum, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("error reading MP4 atoms: %v", err)
+	}
+	return "", fmt.Errorf("reached EOF before audio data")
+}
 
+// errFoundAudio is used to stop walking atoms once the audio data has been
+// hashed.
+var errFoundAudio = errors.New("found audio data")
+
+// sumAtoms walks the boxes in [current position, end), descending into metadata
+// containers and hashing the first mdat box found.
+func sumAtoms(r io.ReadSeeker, end int64, depth int, sum *string) error {
+	if depth > maxBoxDepth {
+		return fmt.Errorf("atom nesting exceeds %d levels", maxBoxDepth)
+	}
+	return walkBoxes(r, end, func(name string, payloadStart, boxEnd int64) error {
 		switch name {
 		case "meta":
-			// next_item_id (int32)
-			_, err := r.Seek(4, io.SeekCurrent)
-			if err != nil {
-				return "", err
+			// next_item_id (int32) precedes the child boxes.
+			if boxEnd-payloadStart < 4 {
+				return nil
 			}
-			fallthrough
+			if _, err := r.Seek(payloadStart+4, io.SeekStart); err != nil {
+				return err
+			}
+			return sumAtoms(r, boxEnd, depth+1, sum)
 
 		case "moov", "udta", "ilst":
-			continue
+			if _, err := r.Seek(payloadStart, io.SeekStart); err != nil {
+				return err
+			}
+			return sumAtoms(r, boxEnd, depth+1, sum)
 
 		case "mdat": // stop when we get to the data
 			h := sha1.New()
-			_, err := io.CopyN(h, r, int64(size-8))
-			if err != nil {
-				return "", fmt.Errorf("error reading audio data: %v", err)
+			if _, err := io.CopyN(h, r, boxEnd-payloadStart); err != nil {
+				return fmt.Errorf("error reading audio data: %v", err)
 			}
-			return hashSum(h), nil
+			*sum = hashSum(h)
+			return errFoundAudio
 		}
-
-		_, err = r.Seek(int64(size-8), io.SeekCurrent)
-		if err != nil {
-			return "", fmt.Errorf("error reading '%v' tag: %v", name, err)
-		}
-	}
+		return nil
+	})
 }
 
 func sizeToEndOffset(r io.ReadSeeker, offset int64) (int64, error) {

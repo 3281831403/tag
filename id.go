@@ -26,19 +26,9 @@ func Identify(r io.ReadSeeker) (format Format, fileType FileType, err error) {
 		return VORBIS, OGG, nil
 
 	case string(b[4:8]) == "ftyp":
-		b = b[8:11]
-		fileType = UnknownFileType
-		switch string(b) {
-		case "M4A":
-			fileType = M4A
-
-		case "M4B":
-			fileType = M4B
-
-		case "M4P":
-			fileType = M4P
-		}
-		return MP4, fileType, nil
+		// The ftyp box gives the file type for most M4A/M4B/M4P files, and
+		// the stsd box identifies Apple Lossless (ALAC) audio.
+		return MP4, mp4FileType(r), nil
 
 	case string(b[0:3]) == "ID3":
 		b := b[3:]

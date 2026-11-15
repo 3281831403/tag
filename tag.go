@@ -91,7 +91,7 @@ const (
 	M4A             FileType = "M4A"  // M4A file Apple iTunes (ACC) Audio
 	M4B             FileType = "M4B"  // M4A file Apple iTunes (ACC) Audio Book
 	M4P             FileType = "M4P"  // M4A file Apple iTunes (ACC) AES Protected Audio
-	ALAC            FileType = "ALAC" // Apple Lossless file FIXME: actually detect this
+	ALAC            FileType = "ALAC" // Apple Lossless file, detected from the stsd sample description
 	FLAC            FileType = "FLAC" // FLAC file
 	OGG             FileType = "OGG"  // OGG file
 	DSF             FileType = "DSF"  // DSF file DSD Sony format see https://dsd-guide.com/sites/default/files/white-papers/DSFFileFormatSpec_E.pdf
