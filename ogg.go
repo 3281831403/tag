@@ -152,14 +152,28 @@ func ReadOGGTags(r io.Reader) (Metadata, error) {
 				m := &metadataOGG{
 					newMetadataVorbis(),
 				}
-				err = m.readVorbisComment(bytes.NewReader(b[len(vorbisCommentPrefix):]))
-				return m, err
+				// Limit parsing to the bytes of this packet so that a
+				// malformed comment cannot read past the packet boundary.
+				// A parse error is swallowed: the tags read before the bad
+				// entry are returned instead of failing the whole file.
+				_ = m.readVorbisComment(
+					&io.LimitedReader{
+						R: bytes.NewReader(b[len(vorbisCommentPrefix):]),
+						N: int64(len(b) - len(vorbisCommentPrefix)),
+					},
+				)
+				return m, nil
 			case bytes.HasPrefix(b, opusTagsPrefix):
 				m := &metadataOGG{
 					newMetadataVorbis(),
 				}
-				err = m.readVorbisComment(bytes.NewReader(b[len(opusTagsPrefix):]))
-				return m, err
+				_ = m.readVorbisComment(
+					&io.LimitedReader{
+						R: bytes.NewReader(b[len(opusTagsPrefix):]),
+						N: int64(len(b) - len(opusTagsPrefix)),
+					},
+				)
+				return m, nil
 			}
 		}
 	}

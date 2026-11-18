@@ -71,15 +71,30 @@ func (m *metadataFLAC) readFLACMetadataBlock(r io.ReadSeeker) (last bool, err er
 		return
 	}
 
+	// Record where the block payload starts so the reader can always be
+	// repositioned at the next block header, regardless of whether this
+	// block's contents are malformed or shorter than the declared length.
+	blockStart, err := r.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return
+	}
+
 	switch blockType(blockHeader[0]) {
 	case vorbisCommentBlock:
-		err = m.readVorbisComment(r)
+		// A malformed comment block only loses this block; every other
+		// block (and the tags it carries) must survive.
+		_ = m.readVorbisComment(&io.LimitedReader{R: r, N: int64(blockLen)})
 
 	case pictureBlock:
-		err = m.readPictureBlock(r)
+		// A bad picture is skipped rather than allowed to consume the
+		// following blocks.
+		_ = m.readPictureBlock(&io.LimitedReader{R: r, N: int64(blockLen)})
+	}
 
-	default:
-		_, err = r.Seek(int64(blockLen), io.SeekCurrent)
+	// Trust the block header's declared length rather than the number of
+	// bytes the block parsers actually consumed.
+	if _, seekErr := r.Seek(blockStart+int64(blockLen), io.SeekStart); seekErr != nil {
+		err = seekErr
 	}
 	return
 }
